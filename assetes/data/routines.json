@@ -12,7 +12,7 @@
         "sets": 1,
         "reps": 25,
         "restSec": 30,
-        "image": "images/exercises/Core/ab_wheel.png"
+        "image": "assetes/images/core/ab_wheel.png"
         },
         {
         "id": "russian-twists",
@@ -21,7 +21,7 @@
         "sets": 1,
         "durationSec": 60,
         "restSec": 30,
-        "image": "images/exercises/Core/russion_twist.png"
+        "image": "assetes/images/core/russion_twist.png"
         },
         {
         "id": "v-ups",
@@ -30,7 +30,7 @@
         "sets": 1,
         "durationSec": 60,
         "restSec": 30,
-        "image": "images/exercises/core/v-up.png"
+        "image": "assetes/images/core/v-up.png"
         },
         {
         "id": "leg-raises",
@@ -39,7 +39,7 @@
         "sets": 1,
         "reps": 15,
         "restSec": 30,
-        "image": "images/exercises/core/leg-raise.png"
+        "image": "assetes/images/core/leg-raise.png"
         },
         {
         "id": "hollow-hold",
@@ -48,7 +48,7 @@
         "sets": 1,
         "durationSec": 60,
         "restSec": 0,
-        "image": "images/exercises/core/plank.png"
+        "image": "assetes/images/core/plank.png"
         }
     ]
     }
