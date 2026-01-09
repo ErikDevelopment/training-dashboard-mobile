@@ -65,6 +65,22 @@ function vibrate(pattern) {
   }
 }
 
+// ===== Beep Sound =====
+let beepAudio = null;
+
+function playBeep() {
+  try {
+    if (!beepAudio) {
+      beepAudio = new Audio('./assets/sounds/beep.mp3'); 
+      // Alternativ: wav oder ogg
+    }
+    beepAudio.currentTime = 0;
+    beepAudio.play();
+  } catch (e) {
+    console.log('Beep not available');
+  }
+}
+
 // ===== Wake Lock =====
 async function requestWakeLock() {
   if ('wakeLock' in navigator) {
@@ -550,6 +566,8 @@ function tickTimeExercise(exId, duration, restSec, totalSets) {
   if (timer.remainingSec <= 0) {
     if (timer.phase === 'work') {
       vibrate(VIBRATE.setEnd);
+
+      playBeep();
       
       if (timer.currentSet >= totalSets) {
         // Exercise complete
@@ -686,6 +704,7 @@ function tickRestTimer(exId) {
     clearInterval(restIntervals[exId]);
     restTimer.running = false;
     vibrate(VIBRATE.short);
+    playBeep();
   }
   
   saveState();
