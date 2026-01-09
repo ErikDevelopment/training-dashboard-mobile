@@ -141,7 +141,7 @@ function loadHistory() {
 // ===== Data Loading =====
 async function loadRoutines() {
   try {
-    const response = await fetch('assets/data/routines.json');
+    const response = await fetch('./assets/data/routines.json');
     if (!response.ok) throw new Error('Fetch failed');
     const data = await response.json();
     state.routines = data.routines;
