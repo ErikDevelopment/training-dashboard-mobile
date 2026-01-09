@@ -72,6 +72,7 @@ function playBeep() {
   try {
     if (!beepAudio) {
       beepAudio = new Audio('./assets/sounds/beep.mp3'); 
+       beepAudio.volume = 1.0;
       // Alternativ: wav oder ogg
     }
     beepAudio.currentTime = 0;
