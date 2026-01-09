@@ -1,0 +1,57 @@
+{
+  "routines": [
+    {
+    "id": "core-circuit",
+    "name": "Core Circuit",
+    "description": "Bauch & Core Zirkel",
+    "exercises": [
+        {
+        "id": "ab-wheel",
+        "name": "Ab Wheel",
+        "type": "reps",
+        "sets": 1,
+        "reps": 25,
+        "restSec": 30,
+        "image": "images/exercises/Core/ab_wheel.png"
+        },
+        {
+        "id": "russian-twists",
+        "name": "Russian Twists",
+        "type": "time",
+        "sets": 1,
+        "durationSec": 60,
+        "restSec": 30,
+        "image": "images/exercises/Core/russion_twist.png"
+        },
+        {
+        "id": "v-ups",
+        "name": "V-Ups",
+        "type": "time",
+        "sets": 1,
+        "durationSec": 60,
+        "restSec": 30,
+        "image": "images/exercises/core/v-up.png"
+        },
+        {
+        "id": "leg-raises",
+        "name": "Leg Raises",
+        "type": "reps",
+        "sets": 1,
+        "reps": 15,
+        "restSec": 30,
+        "image": "images/exercises/core/leg-raise.png"
+        },
+        {
+        "id": "hollow-hold",
+        "name": "Hollow Hold / Plank",
+        "type": "time",
+        "sets": 1,
+        "durationSec": 60,
+        "restSec": 0,
+        "image": "images/exercises/core/plank.png"
+        }
+    ]
+    }
+
+  ]
+}
