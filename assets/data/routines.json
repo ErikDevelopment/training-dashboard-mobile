@@ -1,57 +1,198 @@
 {
   "routines": [
     {
-    "id": "core-circuit",
-    "name": "Bauch Zirkel",
-    "description": "Bauch & Core Zirkel",
-    "exercises": [
+      "id": "core-circuit",
+      "name": "Bauch Zirkel",
+      "description": "Bauch & Core Zirkel",
+      "exercises": [
         {
-        "id": "ab-wheel",
-        "name": "Ab Wheel",
-        "type": "reps",
-        "sets": 1,
-        "reps": 25,
-        "restSec": 30,
-        "image": "assets/images/core/ab_wheel.png"
+          "id": "ab-wheel",
+          "name": "Ab Wheel",
+          "type": "reps",
+          "sets": 1,
+          "reps": 25,
+          "restSec": 30,
+          "image": "assets/images/core/ab_wheel.png"
         },
         {
-        "id": "russian-twists",
-        "name": "Russian Twists",
-        "type": "time",
-        "sets": 1,
-        "durationSec": 60,
-        "restSec": 30,
-        "image": "assets/images/core/russion_twist.png"
+          "id": "russian-twists",
+          "name": "Russian Twists",
+          "type": "time",
+          "sets": 1,
+          "durationSec": 60,
+          "restSec": 30,
+          "image": "assets/images/core/russion_twist.png"
         },
         {
-        "id": "v-ups",
-        "name": "V-Ups",
-        "type": "time",
-        "sets": 1,
-        "durationSec": 60,
-        "restSec": 30,
-        "image": "assets/images/core/v-up.png"
+          "id": "v-ups",
+          "name": "V-Ups",
+          "type": "time",
+          "sets": 1,
+          "durationSec": 60,
+          "restSec": 30,
+          "image": "assets/images/core/v-up.png"
         },
         {
-        "id": "leg-raises",
-        "name": "Leg Raises",
-        "type": "time",
-        "sets": 1,
-        "durationSec": 60,
-        "restSec": 30,
-        "image": "assets/images/core/leg-raise.png"
+          "id": "leg-raises",
+          "name": "Leg Raises",
+          "type": "time",
+          "sets": 1,
+          "durationSec": 60,
+          "restSec": 30,
+          "image": "assets/images/core/leg-raise.png"
         },
         {
-        "id": "hollow-hold",
-        "name": "Hollow Hold / Plank",
-        "type": "time",
-        "sets": 1,
-        "durationSec": 90,
-        "restSec": 0,
-        "image": "assets/images/core/plank.png"
+          "id": "hollow-hold",
+          "name": "Hollow Hold / Plank",
+          "type": "time",
+          "sets": 1,
+          "durationSec": 90,
+          "restSec": 0,
+          "image": "assets/images/core/plank.png"
         }
-    ]
+      ]
+    },
+    {
+      "id": "hrxoy-plan-1",
+      "name": "HRXOY Plan 1",
+      "description": "Endurance & Functional Conditioning",
+      "exercises": [
+        {
+          "id": "run-1000",
+          "name": "Run 1000m",
+          "type": "reps",
+          "sets": 1,
+          "reps": 1,
+          "restSec": 0,
+          "image": "assets/images/hyrox/run.png"
+        },
+        {
+          "id": "row-1000",
+          "name": "Row 1000m",
+          "type": "reps",
+          "sets": 1,
+          "reps": 1,
+          "restSec": 0,
+          "image": "assets/images/hyrox/row.png"
+        },
+        {
+          "id": "wall-balls",
+          "name": "Wall Balls 50",
+          "type": "reps",
+          "sets": 1,
+          "reps": 1,
+          "restSec": 0,
+          "image": "assets/images/hyrox/wall_balls.png"
+        },
+        {
+          "id": "run-800-1",
+          "name": "Run 800m",
+          "type": "reps",
+          "sets": 1,
+          "reps": 1,
+          "restSec": 0,
+          "image": "assets/images/hyrox/run.png"
+        },
+        {
+          "id": "sled-push",
+          "name": "Sled Push 100m",
+          "type": "reps",
+          "sets": 1,
+          "reps": 1,
+          "restSec": 0,
+          "image": "assets/images/hyrox/sled_push.png"
+        },
+        {
+          "id": "run-800-2",
+          "name": "Run 800m",
+          "type": "reps",
+          "sets": 1,
+          "reps": 1,
+          "restSec": 0,
+          "image": "assets/images/hyrox/run.png"
+        },
+        {
+          "id": "sled-pull",
+          "name": "Sled Pull 100m",
+          "type": "reps",
+          "sets": 1,
+          "reps": 1,
+          "restSec": 0,
+          "image": "assets/images/hyrox/sled-pull.png"
+        },
+        {
+          "id": "run-600-1",
+          "name": "Run 600m",
+          "type": "reps",
+          "sets": 1,
+          "reps": 1,
+          "restSec": 0,
+          "image": "assets/images/hyrox/run.png"
+        },
+        {
+          "id": "bbj",
+          "name": "Broad Jumps 60m",
+          "type": "reps",
+          "sets": 1,
+          "reps": 1,
+          "restSec": 0,
+          "image": "assets/images/hyrox/bbj.png"
+        },
+        {
+          "id": "run-600-2",
+          "name": "Run 600m",
+          "type": "reps",
+          "sets": 1,
+          "reps": 1,
+          "restSec": 0,
+          "image": "assets/images/hyrox/run.png"
+        },
+        {
+          "id": "farmer-carry",
+          "name": "Farmer Carry 200m",
+          "type": "reps",
+          "sets": 1,
+          "reps": 1,
+          "restSec": 0,
+            "image": "assets/images/hyrox/farmer-carry.png"
+          },
+        {
+          "id": "run-400-1",
+          "name": "Run 400m",
+          "type": "reps",
+          "sets": 1,
+          "reps": 1,
+          "restSec": 0,
+          "image": "assets/images/hyrox/run.png"
+        },
+        {
+          "id": "walking-lunges",
+          "name": "Walking Lunges 80m",
+          "type": "reps",
+          "sets": 1,
+          "reps": 1,
+          "restSec": 0,
+          "image": "assets/images/hyrox/walking-lunges.png"
+        },
+        {
+          "id": "run-400-2",
+          "name": "Run 400m",
+          "type": "reps",
+          "sets": 1,
+          "reps": 1,
+          "restSec": 0,
+          "image": "assets/images/hyrox/run.png"
+        },
+        {
+          "id": "skierg",
+          "name": "SkiErg 1000m",
+          "type": "reps",
+          "sets": 1,
+          "reps": 1,
+          "restSec": 0,
+          "image": "assets/images/hyrox/skierg.png"
+        }
+      ]
     }
-
   ]
 }
