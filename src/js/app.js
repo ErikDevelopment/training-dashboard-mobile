@@ -1,6 +1,7 @@
 // ===== State Management =====
 const STATE_KEY = 'workout_app_state';
 const HISTORY_KEY = 'workout_app_history';
+const SETTINGS_KEY = 'workout_app_settings';
 
 let state = {
   routines: [],
@@ -11,8 +12,18 @@ let state = {
   routineStopwatch: { running: false, startedAt: null, elapsedMs: 0 }
 };
 
+let settings = {
+  soundEnabled: true,
+  vibrationEnabled: true,
+  autoPauseEnabled: true,
+  autoNextEnabled: true
+};
+
 let history = [];
 let wakeLock = null;
+
+// ===== Exercise Cache - Store exercise data for event delegation =====
+let exerciseCache = {}; // { [exId]: { duration, restSec, totalSets } }
 
 // Fullscreen timer state
 let fullscreenState = {
@@ -26,6 +37,10 @@ let imageZoomState = {
   active: false,
   imageSrc: null
 };
+
+// ===== Timer Intervals - Centralized management =====
+const timerIntervals = {};
+const restIntervals = {};
 
 // ===== Default Routines Fallback =====
 const DEFAULT_ROUTINES = {
@@ -60,7 +75,7 @@ const VIBRATE = {
 };
 
 function vibrate(pattern) {
-  if (navigator.vibrate) {
+  if (settings.vibrationEnabled && navigator.vibrate) {
     navigator.vibrate(pattern);
   }
 }
@@ -69,14 +84,14 @@ function vibrate(pattern) {
 let beepAudio = null;
 
 function playBeep() {
+  if (!settings.soundEnabled) return;
   try {
     if (!beepAudio) {
       beepAudio = new Audio('./assets/sounds/beep.mp3'); 
-       beepAudio.volume = 1.0;
-      // Alternativ: wav oder ogg
+      beepAudio.volume = 1.0;
     }
     beepAudio.currentTime = 0;
-    beepAudio.play();
+    beepAudio.play().catch(() => {});
   } catch (e) {
     console.log('Beep not available');
   }
@@ -100,9 +115,38 @@ async function releaseWakeLock() {
   }
 }
 
+// ===== Settings Management =====
+function loadSettings() {
+  const saved = localStorage.getItem(SETTINGS_KEY);
+  if (saved) {
+    settings = { ...settings, ...JSON.parse(saved) };
+  }
+  updateSettingsUI();
+}
+
+function saveSettings() {
+  localStorage.setItem(SETTINGS_KEY, JSON.stringify(settings));
+}
+
+function updateSetting(key, value) {
+  settings[key] = value;
+  saveSettings();
+}
+
+function updateSettingsUI() {
+  const soundEl = document.getElementById('setting-sound');
+  const vibrationEl = document.getElementById('setting-vibration');
+  const autoPauseEl = document.getElementById('setting-auto-pause');
+  const autoNextEl = document.getElementById('setting-auto-next');
+  
+  if (soundEl) soundEl.checked = settings.soundEnabled;
+  if (vibrationEl) vibrationEl.checked = settings.vibrationEnabled;
+  if (autoPauseEl) autoPauseEl.checked = settings.autoPauseEnabled;
+  if (autoNextEl) autoNextEl.checked = settings.autoNextEnabled;
+}
+
 // ===== LocalStorage =====
 function saveState() {
-  // Don't save routines to localStorage - they come from JSON
   const stateToSave = { ...state };
   delete stateToSave.routines;
   localStorage.setItem(STATE_KEY, JSON.stringify(stateToSave));
@@ -112,7 +156,6 @@ function loadState() {
   const saved = localStorage.getItem(STATE_KEY);
   if (saved) {
     const parsed = JSON.parse(saved);
-    // Don't overwrite routines - they come from JSON
     const { routines, ...rest } = parsed;
     state = { ...state, ...rest };
     
@@ -135,7 +178,6 @@ function loadState() {
       }
     });
     
-    // Recalculate stopwatch
     if (state.routineStopwatch.running && state.routineStopwatch.startedAt) {
       const elapsed = Date.now() - state.routineStopwatch.startedAt;
       state.routineStopwatch.elapsedMs += elapsed;
@@ -166,6 +208,31 @@ async function loadRoutines() {
     console.log('Using default routines');
     state.routines = DEFAULT_ROUTINES.routines;
   }
+  
+  // Build exercise cache
+  buildExerciseCache();
+}
+
+function buildExerciseCache() {
+  exerciseCache = {};
+  state.routines.forEach(routine => {
+    routine.exercises.forEach(ex => {
+      exerciseCache[ex.id] = {
+        id: ex.id,
+        name: ex.name,
+        type: ex.type,
+        sets: ex.sets,
+        durationSec: ex.durationSec || 0,
+        restSec: ex.restSec,
+        reps: ex.reps || 0,
+        image: ex.image
+      };
+    });
+  });
+}
+
+function getExerciseData(exId) {
+  return exerciseCache[exId] || null;
 }
 
 // ===== SVG Icons =====
@@ -196,6 +263,10 @@ function showView(viewId) {
   document.querySelectorAll('.nav-btn').forEach(btn => {
     btn.classList.toggle('active', btn.dataset.view === viewId);
   });
+  
+  if (viewId === 'settings') {
+    updateSettingsUI();
+  }
 }
 
 function renderRoutineList() {
@@ -217,7 +288,7 @@ function renderRoutineList() {
     const isInProgress = completedCount > 0 && completedCount < totalCount;
     
     return `
-      <div class="card card-clickable routine-card" onclick="openRoutine('${routine.id}')">
+      <div class="card card-clickable routine-card" data-routine-id="${routine.id}">
         <div class="routine-card-header">
           <span class="routine-name">${routine.name}</span>
           ${isInProgress ? `<span class="routine-badge">${completedCount}/${totalCount}</span>` : ''}
@@ -260,7 +331,7 @@ function renderRoutineDetail() {
   const progress = totalCount > 0 ? (completedCount / totalCount) * 100 : 0;
   
   document.getElementById('routine-detail-header').innerHTML = `
-    <button class="back-btn" onclick="goBack()">
+    <button class="back-btn" id="back-btn">
       ${ICONS.back}
       Zurück
     </button>
@@ -298,10 +369,10 @@ function renderStopwatch() {
       <div class="stopwatch-label">Trainingszeit</div>
       <div class="stopwatch-value">${formatted}</div>
       <div class="btn-group btn-group-center">
-        <button class="btn btn-icon ${sw.running ? 'btn-primary' : 'btn-secondary'}" onclick="toggleStopwatch()">
+        <button class="btn btn-icon ${sw.running ? 'btn-primary' : 'btn-secondary'}" id="stopwatch-toggle">
           ${sw.running ? ICONS.pause : ICONS.play}
         </button>
-        <button class="btn btn-icon btn-secondary" onclick="resetStopwatch()">
+        <button class="btn btn-icon btn-secondary" id="stopwatch-reset">
           ${ICONS.reset}
         </button>
       </div>
@@ -370,33 +441,47 @@ function renderTimeExercise(ex, key, progress, isCompleted) {
     running: false, 
     phase: 'work', 
     remainingSec: ex.durationSec, 
-    currentSet: 1 
+    currentSet: 1,
+    startedAt: null
   };
   
   const isRest = timer.phase === 'rest';
   const timerClass = timer.running ? (isRest ? 'rest' : 'active') : '';
   const labelClass = timer.running ? (isRest ? 'rest' : 'active') : '';
   
+  // Calculate current remaining time accurately
+  let displayRemaining = timer.remainingSec;
+  if (timer.running && timer.startedAt) {
+    const elapsed = (Date.now() - timer.startedAt) / 1000;
+    displayRemaining = Math.max(0, timer.remainingSec - elapsed);
+  }
+  
   // Calculate progress for ring
   let ringProgress = 0;
   let ringColorClass = '';
   if (isRest) {
-    ringProgress = 1 - (timer.remainingSec / ex.restSec);
+    ringProgress = 1 - (displayRemaining / ex.restSec);
     ringColorClass = 'rest';
   } else {
-    ringProgress = 1 - (timer.remainingSec / ex.durationSec);
+    ringProgress = 1 - (displayRemaining / ex.durationSec);
     ringColorClass = timer.running ? 'active' : '';
   }
   
-  // Image section (if exercise has image)
   const imageSection = ex.image ? `
-    <div class="exercise-image-container" onclick="openImageZoom('${ex.image}')">
+    <div class="exercise-image-container" data-image="${ex.image}">
       <img src="${ex.image}" alt="${ex.name}" class="exercise-image" onerror="this.parentElement.style.display='none'"/>
     </div>
   ` : '';
 
+  const pauseExtensionButtons = isRest ? `
+    <div class="pause-extension-buttons">
+      <button class="btn btn-secondary btn-small" data-action="extend-pause" data-ex-id="${ex.id}" data-seconds="10">+10s</button>
+      <button class="btn btn-secondary btn-small" data-action="extend-pause" data-ex-id="${ex.id}" data-seconds="30">+30s</button>
+    </div>
+  ` : '';
+
   return `
-    <div class="card exercise-card ${isCompleted ? 'completed' : ''}" id="ex-${ex.id}">
+    <div class="card exercise-card ${isCompleted ? 'completed' : ''}" id="ex-${ex.id}" data-ex-id="${ex.id}" data-ex-type="time">
       <div class="exercise-header">
         <span class="exercise-name">${ex.name}</span>
         <span class="exercise-type-badge time">Zeit</span>
@@ -421,22 +506,23 @@ function renderTimeExercise(ex, key, progress, isCompleted) {
       
       ${createProgressRing(ringProgress, 120, 6, ringColorClass)}
       
-      <div class="timer-display" onclick="openFullscreenTimer('${ex.id}', 'time')">
-        <div class="timer-value ${timerClass}">${formatTime(Math.ceil(timer.remainingSec))}</div>
+      <div class="timer-display" data-action="open-fullscreen" data-ex-id="${ex.id}">
+        <div class="timer-value ${timerClass}">${formatTime(Math.ceil(displayRemaining))}</div>
         <div class="timer-label ${labelClass}">${isRest ? 'Pause' : 'Aktiv'}</div>
         <div class="set-indicator">Set ${timer.currentSet} / ${ex.sets}</div>
+        ${pauseExtensionButtons}
         <div class="timer-display-hint">Tippen für Vollbild</div>
       </div>
       
       <div class="btn-group btn-group-center">
-        <button class="btn btn-icon btn-secondary" onclick="resetTimeExercise('${ex.id}', ${ex.durationSec})">
+        <button class="btn btn-icon btn-secondary" data-action="reset-timer" data-ex-id="${ex.id}">
           ${ICONS.reset}
         </button>
-        <button class="btn btn-primary" onclick="toggleTimeExercise('${ex.id}', ${ex.durationSec}, ${ex.restSec}, ${ex.sets})" ${isCompleted ? 'disabled' : ''}>
+        <button class="btn btn-primary" data-action="toggle-timer" data-ex-id="${ex.id}" ${isCompleted ? 'disabled' : ''}>
           ${timer.running ? ICONS.pause : ICONS.play}
           ${timer.running ? 'Pause' : 'Start'}
         </button>
-        <button class="btn btn-icon btn-secondary" onclick="skipTimeExercise('${ex.id}', ${ex.durationSec}, ${ex.restSec}, ${ex.sets})" ${isCompleted ? 'disabled' : ''}>
+        <button class="btn btn-icon btn-secondary" data-action="skip-timer" data-ex-id="${ex.id}" ${isCompleted ? 'disabled' : ''}>
           ${ICONS.skip}
         </button>
       </div>
@@ -447,20 +533,37 @@ function renderTimeExercise(ex, key, progress, isCompleted) {
 function renderRepsExercise(ex, key, progress, isCompleted) {
   const doneSets = progress.doneSets || 0;
   const restTimer = state.restTimers[ex.id];
-  const hasRestTimer = restTimer && restTimer.running && restTimer.remainingSec > 0;
   
-  // Calculate progress for ring
+  // Calculate current remaining time accurately
+  let displayRemaining = 0;
+  let hasRestTimer = false;
+  if (restTimer && restTimer.running) {
+    if (restTimer.startedAt) {
+      const elapsed = (Date.now() - restTimer.startedAt) / 1000;
+      displayRemaining = Math.max(0, restTimer.remainingSec - elapsed);
+    } else {
+      displayRemaining = restTimer.remainingSec;
+    }
+    hasRestTimer = displayRemaining > 0;
+  }
+  
   const ringProgress = doneSets / ex.sets;
   
-  // Image section (if exercise has image)
   const imageSection = ex.image ? `
-    <div class="exercise-image-container" onclick="openImageZoom('${ex.image}')">
+    <div class="exercise-image-container" data-image="${ex.image}">
       <img src="${ex.image}" alt="${ex.name}" class="exercise-image" onerror="this.parentElement.style.display='none'"/>
     </div>
   ` : '';
 
+  const pauseExtensionButtons = hasRestTimer ? `
+    <div class="pause-extension-buttons">
+      <button class="btn btn-secondary btn-small" data-action="extend-rest" data-ex-id="${ex.id}" data-seconds="10">+10s</button>
+      <button class="btn btn-secondary btn-small" data-action="extend-rest" data-ex-id="${ex.id}" data-seconds="30">+30s</button>
+    </div>
+  ` : '';
+
   return `
-    <div class="card exercise-card ${isCompleted ? 'completed' : ''}" id="ex-${ex.id}">
+    <div class="card exercise-card ${isCompleted ? 'completed' : ''}" id="ex-${ex.id}" data-ex-id="${ex.id}" data-ex-type="reps">
       <div class="exercise-header">
         <span class="exercise-name">${ex.name}</span>
         <span class="exercise-type-badge reps">Reps</span>
@@ -492,20 +595,21 @@ function renderRepsExercise(ex, key, progress, isCompleted) {
         ${hasRestTimer ? `
           <div class="rest-mini-timer">
             <span class="rest-mini-label">Pause</span>
-            <span>${formatTime(Math.ceil(restTimer.remainingSec))}</span>
+            <span>${formatTime(Math.ceil(displayRemaining))}</span>
           </div>
+          ${pauseExtensionButtons}
         ` : ''}
       </div>
       
       <div class="btn-group btn-group-center">
-        <button class="btn btn-icon btn-secondary" onclick="decrementSet('${ex.id}', ${ex.sets})" ${doneSets === 0 ? 'disabled' : ''}>
+        <button class="btn btn-icon btn-secondary" data-action="decrement-set" data-ex-id="${ex.id}" ${doneSets === 0 ? 'disabled' : ''}>
           ${ICONS.minus}
         </button>
-        <button class="btn btn-primary" onclick="incrementSet('${ex.id}', ${ex.sets}, ${ex.restSec})" ${isCompleted ? 'disabled' : ''}>
+        <button class="btn btn-primary" data-action="increment-set" data-ex-id="${ex.id}" ${isCompleted ? 'disabled' : ''}>
           ${ICONS.plus}
           Set fertig
         </button>
-        <button class="btn btn-icon btn-danger" onclick="resetRepsExercise('${ex.id}')">
+        <button class="btn btn-icon btn-danger" data-action="reset-reps" data-ex-id="${ex.id}">
           ${ICONS.reset}
         </button>
       </div>
@@ -518,81 +622,168 @@ function renderCompleteButton(routine) {
   const totalCount = routine.exercises.length;
   
   document.getElementById('complete-routine-btn').innerHTML = `
-    <button class="btn btn-primary btn-full mt-lg" onclick="completeRoutine()">
+    <button class="btn btn-primary btn-full mt-lg" id="complete-routine">
       ${ICONS.check}
       Training abschließen (${completedCount}/${totalCount})
     </button>
   `;
 }
 
-// ===== Time Exercise Logic =====
-let timerIntervals = {};
+// ===== Pause Extension =====
+function extendPause(exId, seconds) {
+  const timer = state.timers[exId];
+  if (!timer || timer.phase !== 'rest') return;
+  
+  timer.remainingSec += seconds;
+  saveState();
+  scheduleUIUpdate(exId);
+}
 
-function toggleTimeExercise(exId, duration, restSec, totalSets) {
+function extendRestTimer(exId, seconds) {
+  const restTimer = state.restTimers[exId];
+  if (!restTimer || !restTimer.running) return;
+  
+  restTimer.remainingSec += seconds;
+  saveState();
+  scheduleRepsUIUpdate(exId);
+}
+
+// ===== Centralized Interval Management =====
+function clearTimerInterval(exId) {
+  if (timerIntervals[exId]) {
+    clearInterval(timerIntervals[exId]);
+    timerIntervals[exId] = null;
+  }
+}
+
+function clearRestInterval(exId) {
+  if (restIntervals[exId]) {
+    clearInterval(restIntervals[exId]);
+    restIntervals[exId] = null;
+  }
+}
+
+function startTimerInterval(exId) {
+  clearTimerInterval(exId);
+  timerIntervals[exId] = setInterval(() => tickTimeExercise(exId), 100);
+}
+
+function startRestInterval(exId) {
+  clearRestInterval(exId);
+  restIntervals[exId] = setInterval(() => tickRestTimer(exId), 100);
+}
+
+// ===== Time Exercise Logic =====
+function toggleTimeExercise(exId) {
+  const exData = getExerciseData(exId);
+  if (!exData) return;
+  
   let timer = state.timers[exId];
   
   if (!timer) {
-    timer = { running: false, phase: 'work', remainingSec: duration, currentSet: 1 };
+    timer = { 
+      running: false, 
+      phase: 'work', 
+      remainingSec: exData.durationSec, 
+      currentSet: 1,
+      startedAt: null
+    };
     state.timers[exId] = timer;
   }
   
   if (timer.running) {
-    // Pause
-    clearInterval(timerIntervals[exId]);
+    // PAUSE - Calculate accurate remaining time
+    if (timer.startedAt) {
+      const elapsed = (Date.now() - timer.startedAt) / 1000;
+      timer.remainingSec = Math.max(0, timer.remainingSec - elapsed);
+    }
     timer.running = false;
+    timer.startedAt = null;
+    clearTimerInterval(exId);
     releaseWakeLock();
   } else {
-    // Start
+    // START/RESUME
     timer.running = true;
     timer.startedAt = Date.now();
+    startTimerInterval(exId);
     requestWakeLock();
-    
-    timerIntervals[exId] = setInterval(() => {
-      tickTimeExercise(exId, duration, restSec, totalSets);
-    }, 100);
   }
   
   saveState();
-  updateTimeExerciseUI(exId);
+  scheduleUIUpdate(exId);
 }
 
-function tickTimeExercise(exId, duration, restSec, totalSets) {
+function tickTimeExercise(exId) {
   const timer = state.timers[exId];
-  if (!timer || !timer.running) return;
+  const exData = getExerciseData(exId);
+  
+  if (!timer || !timer.running || !timer.startedAt || !exData) {
+    clearTimerInterval(exId);
+    return;
+  }
   
   const elapsed = (Date.now() - timer.startedAt) / 1000;
-  timer.remainingSec = Math.max(0, timer.remainingSec - elapsed);
+  const newRemaining = Math.max(0, timer.remainingSec - elapsed);
+  timer.remainingSec = newRemaining;
   timer.startedAt = Date.now();
   
   if (timer.remainingSec <= 0) {
     if (timer.phase === 'work') {
+      // Work phase complete
       vibrate(VIBRATE.setEnd);
-
       playBeep();
       
-      if (timer.currentSet >= totalSets) {
+      if (timer.currentSet >= exData.sets) {
         // Exercise complete
-        clearInterval(timerIntervals[exId]);
+        clearTimerInterval(exId);
         timer.running = false;
+        timer.startedAt = null;
         vibrate(VIBRATE.complete);
+        playBeep();
         markExerciseCompleted(exId);
         releaseWakeLock();
       } else {
-        // Start rest
+        // Start rest phase
         timer.phase = 'rest';
-        timer.remainingSec = restSec;
+        timer.remainingSec = exData.restSec;
+        
+        if (!settings.autoPauseEnabled) {
+          clearTimerInterval(exId);
+          timer.running = false;
+          timer.startedAt = null;
+          releaseWakeLock();
+        }
       }
     } else {
-      // Rest complete, start next set
+      // Rest phase complete
       vibrate(VIBRATE.short);
+      playBeep();
       timer.phase = 'work';
-      timer.remainingSec = duration;
+      timer.remainingSec = exData.durationSec;
       timer.currentSet++;
+      
+      if (!settings.autoNextEnabled) {
+        clearTimerInterval(exId);
+        timer.running = false;
+        timer.startedAt = null;
+        releaseWakeLock();
+      }
     }
   }
   
   saveState();
-  updateTimeExerciseUI(exId);
+  scheduleUIUpdate(exId);
+}
+
+// Throttle UI updates to prevent excessive rendering
+let pendingUIUpdates = {};
+function scheduleUIUpdate(exId) {
+  if (pendingUIUpdates[exId]) return;
+  pendingUIUpdates[exId] = true;
+  requestAnimationFrame(() => {
+    updateTimeExerciseUI(exId);
+    pendingUIUpdates[exId] = false;
+  });
 }
 
 function updateTimeExerciseUI(exId) {
@@ -607,16 +798,30 @@ function updateTimeExerciseUI(exId) {
   
   const card = document.getElementById(`ex-${exId}`);
   if (card) {
-    card.outerHTML = renderTimeExercise(ex, key, progress, progress.completed);
+    // Use innerHTML to update content while keeping the same element reference
+    const tempDiv = document.createElement('div');
+    tempDiv.innerHTML = renderTimeExercise(ex, key, progress, progress.completed);
+    const newCard = tempDiv.firstElementChild;
+    card.className = newCard.className;
+    card.innerHTML = newCard.innerHTML;
   }
   
-  // Also update fullscreen timer if active
   updateFullscreenTimerIfActive(exId);
 }
 
-function resetTimeExercise(exId, duration) {
-  clearInterval(timerIntervals[exId]);
-  state.timers[exId] = { running: false, phase: 'work', remainingSec: duration, currentSet: 1 };
+function resetTimeExercise(exId) {
+  const exData = getExerciseData(exId);
+  if (!exData) return;
+  
+  clearTimerInterval(exId);
+  
+  state.timers[exId] = { 
+    running: false, 
+    phase: 'work', 
+    remainingSec: exData.durationSec, 
+    currentSet: 1,
+    startedAt: null
+  };
   
   const routine = state.routines.find(r => r.id === state.currentRoutineId);
   if (routine) {
@@ -626,43 +831,62 @@ function resetTimeExercise(exId, duration) {
     }
   }
   
+  releaseWakeLock();
   saveState();
   updateTimeExerciseUI(exId);
   renderRoutineDetail();
 }
 
-function skipTimeExercise(exId, duration, restSec, totalSets) {
-  const timer = state.timers[exId] || { running: false, phase: 'work', remainingSec: duration, currentSet: 1 };
+function skipTimeExercise(exId) {
+  const exData = getExerciseData(exId);
+  if (!exData) return;
+  
+  let timer = state.timers[exId];
+  
+  if (!timer) {
+    timer = { 
+      running: false, 
+      phase: 'work', 
+      remainingSec: exData.durationSec, 
+      currentSet: 1,
+      startedAt: null
+    };
+    state.timers[exId] = timer;
+  }
+  
+  // Always stop timer on skip
+  clearTimerInterval(exId);
+  timer.running = false;
+  timer.startedAt = null;
   
   if (timer.phase === 'work') {
-    if (timer.currentSet >= totalSets) {
-      clearInterval(timerIntervals[exId]);
-      timer.running = false;
+    if (timer.currentSet >= exData.sets) {
       vibrate(VIBRATE.complete);
+      playBeep();
       markExerciseCompleted(exId);
     } else {
       timer.phase = 'rest';
-      timer.remainingSec = restSec;
+      timer.remainingSec = exData.restSec;
       vibrate(VIBRATE.short);
     }
   } else {
     timer.phase = 'work';
-    timer.remainingSec = duration;
+    timer.remainingSec = exData.durationSec;
     timer.currentSet++;
     vibrate(VIBRATE.short);
   }
   
   state.timers[exId] = timer;
+  releaseWakeLock();
   saveState();
   updateTimeExerciseUI(exId);
 }
 
 // ===== Reps Exercise Logic =====
-let restIntervals = {};
-
-function incrementSet(exId, totalSets, restSec) {
+function incrementSet(exId) {
+  const exData = getExerciseData(exId);
   const routine = state.routines.find(r => r.id === state.currentRoutineId);
-  if (!routine) return;
+  if (!routine || !exData) return;
   
   const key = `${routine.id}_${exId}`;
   if (!state.exerciseProgress[key]) {
@@ -670,64 +894,87 @@ function incrementSet(exId, totalSets, restSec) {
   }
   
   const progress = state.exerciseProgress[key];
-  progress.doneSets = Math.min(progress.doneSets + 1, totalSets);
+  progress.doneSets = Math.min(progress.doneSets + 1, exData.sets);
   
   vibrate(VIBRATE.short);
   
-  if (progress.doneSets >= totalSets) {
+  if (progress.doneSets >= exData.sets) {
     progress.completed = true;
     vibrate(VIBRATE.complete);
-    clearInterval(restIntervals[exId]);
+    playBeep();
+    clearRestInterval(exId);
     delete state.restTimers[exId];
   } else {
     // Start rest timer
-    clearInterval(restIntervals[exId]);
-    state.restTimers[exId] = { running: true, startedAt: Date.now(), remainingSec: restSec };
-    
-    restIntervals[exId] = setInterval(() => {
-      tickRestTimer(exId);
-    }, 100);
+    clearRestInterval(exId);
+    state.restTimers[exId] = { 
+      running: true, 
+      startedAt: Date.now(), 
+      remainingSec: exData.restSec
+    };
+    startRestInterval(exId);
   }
   
   saveState();
   renderRoutineDetail();
 }
 
+let pendingRepsUIUpdates = {};
+function scheduleRepsUIUpdate(exId) {
+  if (pendingRepsUIUpdates[exId]) return;
+  pendingRepsUIUpdates[exId] = true;
+  requestAnimationFrame(() => {
+    updateRepsExerciseUI(exId);
+    pendingRepsUIUpdates[exId] = false;
+  });
+}
+
+function updateRepsExerciseUI(exId) {
+  const routine = state.routines.find(r => r.id === state.currentRoutineId);
+  if (!routine) return;
+  
+  const ex = routine.exercises.find(e => e.id === exId);
+  if (!ex) return;
+  
+  const key = `${routine.id}_${exId}`;
+  const progress = state.exerciseProgress[key] || { completed: false, doneSets: 0 };
+  const card = document.getElementById(`ex-${exId}`);
+  if (card) {
+    const tempDiv = document.createElement('div');
+    tempDiv.innerHTML = renderRepsExercise(ex, key, progress, progress.completed);
+    const newCard = tempDiv.firstElementChild;
+    card.className = newCard.className;
+    card.innerHTML = newCard.innerHTML;
+  }
+}
+
 function tickRestTimer(exId) {
   const restTimer = state.restTimers[exId];
-  if (!restTimer || !restTimer.running) return;
+  if (!restTimer || !restTimer.running || !restTimer.startedAt) {
+    clearRestInterval(exId);
+    return;
+  }
   
   const elapsed = (Date.now() - restTimer.startedAt) / 1000;
   restTimer.remainingSec = Math.max(0, restTimer.remainingSec - elapsed);
   restTimer.startedAt = Date.now();
   
   if (restTimer.remainingSec <= 0) {
-    clearInterval(restIntervals[exId]);
+    clearRestInterval(exId);
     restTimer.running = false;
+    restTimer.startedAt = null;
     vibrate(VIBRATE.short);
     playBeep();
   }
   
   saveState();
-  
-  // Update just the rest timer display
-  const routine = state.routines.find(r => r.id === state.currentRoutineId);
-  if (routine) {
-    const ex = routine.exercises.find(e => e.id === exId);
-    if (ex) {
-      const key = `${routine.id}_${exId}`;
-      const progress = state.exerciseProgress[key] || { completed: false, doneSets: 0 };
-      const card = document.getElementById(`ex-${exId}`);
-      if (card) {
-        card.outerHTML = renderRepsExercise(ex, key, progress, progress.completed);
-      }
-    }
-  }
+  scheduleRepsUIUpdate(exId);
 }
 
-function decrementSet(exId, totalSets) {
+function decrementSet(exId) {
+  const exData = getExerciseData(exId);
   const routine = state.routines.find(r => r.id === state.currentRoutineId);
-  if (!routine) return;
+  if (!routine || !exData) return;
   
   const key = `${routine.id}_${exId}`;
   if (!state.exerciseProgress[key]) return;
@@ -747,7 +994,7 @@ function resetRepsExercise(exId) {
   const key = `${routine.id}_${exId}`;
   state.exerciseProgress[key] = { completed: false, doneSets: 0 };
   
-  clearInterval(restIntervals[exId]);
+  clearRestInterval(exId);
   delete state.restTimers[exId];
   
   saveState();
@@ -779,7 +1026,6 @@ function completeRoutine() {
     ? sw.elapsedMs + (Date.now() - sw.startedAt)
     : sw.elapsedMs;
   
-  // Create history entry
   const entry = {
     id: Date.now().toString(),
     routineId: routine.id,
@@ -793,18 +1039,19 @@ function completeRoutine() {
   history.unshift(entry);
   saveHistory();
   
-  // Reset routine progress
+  // Clean up all timers and intervals
   routine.exercises.forEach(ex => {
     const key = `${routine.id}_${ex.id}`;
     delete state.exerciseProgress[key];
     delete state.timers[ex.id];
     delete state.restTimers[ex.id];
-    clearInterval(timerIntervals[ex.id]);
-    clearInterval(restIntervals[ex.id]);
+    clearTimerInterval(ex.id);
+    clearRestInterval(ex.id);
   });
   
   resetStopwatch();
   vibrate(VIBRATE.complete);
+  playBeep();
   
   saveState();
   goBack();
@@ -873,17 +1120,14 @@ function formatDate(isoString) {
 }
 
 // ===== Fullscreen Timer Mode =====
-function openFullscreenTimer(exId, type) {
-  const routine = state.routines.find(r => r.id === state.currentRoutineId);
-  if (!routine) return;
-  
-  const ex = routine.exercises.find(e => e.id === exId);
-  if (!ex || ex.type !== 'time') return;
+function openFullscreenTimer(exId) {
+  const exData = getExerciseData(exId);
+  if (!exData || exData.type !== 'time') return;
   
   fullscreenState = {
     active: true,
     exerciseId: exId,
-    exerciseData: ex
+    exerciseData: exData
   };
   
   document.body.style.overflow = 'hidden';
@@ -898,50 +1142,62 @@ function closeFullscreenTimer() {
 }
 
 function renderFullscreenTimer() {
-  const ex = fullscreenState.exerciseData;
-  if (!ex) return;
+  const exData = fullscreenState.exerciseData;
+  if (!exData) return;
   
-  const timer = state.timers[ex.id] || { 
+  const timer = state.timers[exData.id] || { 
     running: false, 
     phase: 'work', 
-    remainingSec: ex.durationSec, 
+    remainingSec: exData.durationSec, 
     currentSet: 1 
   };
+  
+  // Calculate accurate remaining time
+  let displayRemaining = timer.remainingSec;
+  if (timer.running && timer.startedAt) {
+    const elapsed = (Date.now() - timer.startedAt) / 1000;
+    displayRemaining = Math.max(0, timer.remainingSec - elapsed);
+  }
   
   const isRest = timer.phase === 'rest';
   const timerClass = timer.running ? (isRest ? 'rest' : 'active') : '';
   const labelClass = timer.running ? (isRest ? 'rest' : 'active') : '';
   
+  const pauseExtensionButtons = isRest ? `
+    <div class="fullscreen-pause-extension">
+      <button class="btn btn-secondary" data-action="extend-pause" data-ex-id="${exData.id}" data-seconds="10">+10s</button>
+      <button class="btn btn-secondary" data-action="extend-pause" data-ex-id="${exData.id}" data-seconds="30">+30s</button>
+    </div>
+  ` : '';
+  
   const overlay = document.getElementById('fullscreen-timer-overlay');
   overlay.innerHTML = `
-    <button class="fullscreen-close-btn" onclick="closeFullscreenTimer()">
+    <button class="fullscreen-close-btn" id="fullscreen-close">
       ${ICONS.close}
     </button>
     
-    <div class="fullscreen-exercise-name">${ex.name}</div>
+    <div class="fullscreen-exercise-name">${exData.name}</div>
     
-    <div class="fullscreen-timer-value ${timerClass}">${formatTime(Math.ceil(timer.remainingSec))}</div>
+    <div class="fullscreen-timer-value ${timerClass}">${formatTime(Math.ceil(displayRemaining))}</div>
     <div class="fullscreen-timer-label ${labelClass}">${isRest ? 'Pause' : 'Aktiv'}</div>
-    <div class="fullscreen-set-indicator">Set ${timer.currentSet} / ${ex.sets}</div>
+    <div class="fullscreen-set-indicator">Set ${timer.currentSet} / ${exData.sets}</div>
+    
+    ${pauseExtensionButtons}
     
     <div class="fullscreen-controls">
-      <button class="btn btn-secondary" onclick="closeFullscreenTimer()">
+      <button class="btn btn-secondary" id="fullscreen-back">
         ${ICONS.back}
         Zurück
       </button>
-      <button class="btn btn-primary" onclick="toggleTimeExerciseFromFullscreen('${ex.id}', ${ex.durationSec}, ${ex.restSec}, ${ex.sets})">
+      <button class="btn btn-icon btn-secondary" data-action="skip-timer" data-ex-id="${exData.id}">
+        ${ICONS.skip}
+      </button>
+      <button class="btn btn-primary" data-action="toggle-timer" data-ex-id="${exData.id}">
         ${timer.running ? ICONS.pause : ICONS.play}
         ${timer.running ? 'Pause' : 'Start'}
       </button>
     </div>
   `;
-}
-
-function toggleTimeExerciseFromFullscreen(exId, duration, restSec, totalSets) {
-  toggleTimeExercise(exId, duration, restSec, totalSets);
-  if (fullscreenState.active) {
-    renderFullscreenTimer();
-  }
 }
 
 function updateFullscreenTimerIfActive(exId) {
@@ -974,7 +1230,7 @@ function renderImageZoom() {
   const overlay = document.getElementById('image-zoom-overlay');
   overlay.innerHTML = `
     <div class="image-zoom-container">
-      <button class="image-zoom-close" onclick="closeImageZoom()">
+      <button class="image-zoom-close" id="image-zoom-close">
         ${ICONS.close}
       </button>
       <img src="${imageZoomState.imageSrc}" alt="Exercise" class="image-zoom-img"/>
@@ -993,14 +1249,125 @@ function startStopwatchUpdate() {
   }, 1000);
 }
 
+// ===== Event Delegation - Central Event Handler =====
+function setupEventDelegation() {
+  document.addEventListener('click', (e) => {
+    const target = e.target.closest('[data-action]') || 
+                   e.target.closest('[data-routine-id]') ||
+                   e.target.closest('[data-image]') ||
+                   e.target.closest('#back-btn') ||
+                   e.target.closest('#stopwatch-toggle') ||
+                   e.target.closest('#stopwatch-reset') ||
+                   e.target.closest('#complete-routine') ||
+                   e.target.closest('#fullscreen-close') ||
+                   e.target.closest('#fullscreen-back') ||
+                   e.target.closest('#image-zoom-close');
+    
+    if (!target) return;
+    
+    // Handle data-action buttons
+    const action = target.dataset?.action;
+    const exId = target.dataset?.exId;
+    const seconds = parseInt(target.dataset?.seconds) || 0;
+    
+    switch (action) {
+      case 'toggle-timer':
+        e.preventDefault();
+        e.stopPropagation();
+        toggleTimeExercise(exId);
+        break;
+      case 'reset-timer':
+        e.preventDefault();
+        resetTimeExercise(exId);
+        break;
+      case 'skip-timer':
+        e.preventDefault();
+        e.stopPropagation();
+        skipTimeExercise(exId);
+        break;
+      case 'extend-pause':
+        e.preventDefault();
+        e.stopPropagation();
+        extendPause(exId, seconds);
+        break;
+      case 'extend-rest':
+        e.preventDefault();
+        e.stopPropagation();
+        extendRestTimer(exId, seconds);
+        break;
+      case 'increment-set':
+        e.preventDefault();
+        incrementSet(exId);
+        break;
+      case 'decrement-set':
+        e.preventDefault();
+        decrementSet(exId);
+        break;
+      case 'reset-reps':
+        e.preventDefault();
+        resetRepsExercise(exId);
+        break;
+      case 'open-fullscreen':
+        e.preventDefault();
+        openFullscreenTimer(exId);
+        break;
+    }
+    
+    // Handle routine cards
+    const routineId = target.dataset?.routineId;
+    if (routineId) {
+      openRoutine(routineId);
+      return;
+    }
+    
+    // Handle image zoom
+    const imageSrc = target.dataset?.image;
+    if (imageSrc) {
+      openImageZoom(imageSrc);
+      return;
+    }
+    
+    // Handle specific button IDs
+    if (target.id === 'back-btn' || target.closest('#back-btn')) {
+      goBack();
+      return;
+    }
+    if (target.id === 'stopwatch-toggle' || target.closest('#stopwatch-toggle')) {
+      toggleStopwatch();
+      return;
+    }
+    if (target.id === 'stopwatch-reset' || target.closest('#stopwatch-reset')) {
+      resetStopwatch();
+      return;
+    }
+    if (target.id === 'complete-routine' || target.closest('#complete-routine')) {
+      completeRoutine();
+      return;
+    }
+    if (target.id === 'fullscreen-close' || target.closest('#fullscreen-close') ||
+        target.id === 'fullscreen-back' || target.closest('#fullscreen-back')) {
+      closeFullscreenTimer();
+      return;
+    }
+    if (target.id === 'image-zoom-close' || target.closest('#image-zoom-close')) {
+      closeImageZoom();
+      return;
+    }
+  });
+}
+
 // ===== Initialization =====
 async function init() {
+  loadSettings();
   loadState();
   loadHistory();
   await loadRoutines();
   
   // Create overlay elements
   createOverlays();
+  
+  // Setup event delegation (once, never removed)
+  setupEventDelegation();
   
   renderRoutineList();
   renderHistory();
@@ -1023,10 +1390,25 @@ async function init() {
   // Clear history button
   document.getElementById('clear-history-btn').addEventListener('click', clearHistory);
   
-  // Restore last view
+  // Restore last view and restart any running timers
   if (state.currentRoutineId) {
     renderRoutineDetail();
     showView('routine-detail');
+    
+    // Restart intervals for any running timers
+    Object.keys(state.timers).forEach(exId => {
+      const timer = state.timers[exId];
+      if (timer.running) {
+        startTimerInterval(exId);
+      }
+    });
+    
+    Object.keys(state.restTimers).forEach(exId => {
+      const restTimer = state.restTimers[exId];
+      if (restTimer.running) {
+        startRestInterval(exId);
+      }
+    });
   } else {
     showView('routine-list');
   }
@@ -1045,11 +1427,11 @@ function createOverlays() {
   const imageOverlay = document.createElement('div');
   imageOverlay.id = 'image-zoom-overlay';
   imageOverlay.className = 'image-zoom-overlay';
-  imageOverlay.onclick = (e) => {
+  imageOverlay.addEventListener('click', (e) => {
     if (e.target === imageOverlay) {
       closeImageZoom();
     }
-  };
+  });
   document.body.appendChild(imageOverlay);
 }
 

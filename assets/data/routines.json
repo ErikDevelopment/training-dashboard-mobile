@@ -35,7 +35,7 @@
         {
         "id": "leg-raises",
         "name": "Leg Raises",
-        "type": "reps",
+        "type": "time",
         "sets": 1,
         "durationSec": 60,
         "restSec": 30,
